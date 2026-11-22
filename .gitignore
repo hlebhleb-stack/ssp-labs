@@ -1,0 +1,9 @@
+bin/
+obj/
+.DS_Store
+*.user
+
+.DS_Store
+[Bb]in/
+[Oo]bj/
+[Bb]enchmarkDotNet.Artifacts/
