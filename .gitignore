@@ -1,0 +1,12 @@
+
+.DS_Store
+[Bb]in/
+[Oo]bj/
+[Bb]enchmarkDotNet.Artifacts/
+/Lab10/Library/
+/Lab10/Temp/
+/Lab10/Logs/
+/Lab10/UserSettings/
+/Lab10/.vscode/
+/Lab10/*.csproj
+/Lab10/*.sln*
