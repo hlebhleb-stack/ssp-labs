@@ -1,29 +1,59 @@
 using Microsoft.ML;
 using Microsoft.ML.Data;
+using Microsoft.ML.Trainers;
 
 internal static class Task4Spam
 {
     public static void Run(MLContext ml)
     {
+        // Каждый столбец CSV считывается по индексу из атрибутов EmailData.
         var data = ml.Data.LoadFromTextFile<EmailData>(
             Path.Combine(AppContext.BaseDirectory, "spam.csv"), hasHeader: true, separatorChar: ',');
 
         // Тема и тело превращаются в два числовых вектора.
         // К ним добавляются два признака 0/1. IsSpam остаётся только целевой меткой.
-        var pipeline = ml.Transforms.Text.FeaturizeText("SubjectFeatures", nameof(EmailData.Subject))
-            .Append(ml.Transforms.Text.FeaturizeText("MessageFeatures", nameof(EmailData.Message)))
+        var textFeatures = ml.Transforms.Text.FeaturizeText("SubjectFeatures", nameof(EmailData.Subject))
+            .Append(ml.Transforms.Text.FeaturizeText("MessageFeatures", nameof(EmailData.Message)));
+
+        var trainer = new SdcaLogisticRegressionBinaryTrainer.Options
+        {
+            LabelColumnName = nameof(EmailData.IsSpam),
+            MaximumNumberOfIterations = 100,
+            NumberOfThreads = 1
+        };
+
+        var pipeline = textFeatures
             .Append(ml.Transforms.Concatenate("Features",
                 "SubjectFeatures", "MessageFeatures", nameof(EmailData.SenderKnown), nameof(EmailData.HasAttachments)))
-            .Append(ml.BinaryClassification.Trainers.SdcaLogisticRegression(labelColumnName: nameof(EmailData.IsSpam)));
+            .Append(ml.BinaryClassification.Trainers.SdcaLogisticRegression(trainer));
 
-        // Для оценки обучаемся отдельно: тестовые письма не участвуют в Fit.
+        // ApplyWordEmbedding сопоставляет токены с векторами из учебного русского словаря.
+        // Сохраняем базовые признаки, чтобы проверить вклад добавленных векторов отдельно.
+        var vectorPath = Path.Combine(AppContext.BaseDirectory, "ru-word-vectors.txt");
+        var embeddingPipeline = textFeatures
+            // Нулевой маркер обеспечивает конечный результат даже для текста без слов из словаря.
+            .Append(ml.Transforms.CustomMapping<EmailData, EmbeddingText>((email, output) =>
+            {
+                output.EmbeddingSubject = "нейтральныймаркер " + email.Subject;
+                output.EmbeddingMessage = "нейтральныймаркер " + email.Message;
+            }, contractName: null))
+            .Append(ml.Transforms.Text.NormalizeText("NormalizedSubject", nameof(EmbeddingText.EmbeddingSubject)))
+            .Append(ml.Transforms.Text.NormalizeText("NormalizedMessage", nameof(EmbeddingText.EmbeddingMessage)))
+            .Append(ml.Transforms.Text.TokenizeIntoWords("SubjectTokens", "NormalizedSubject"))
+            .Append(ml.Transforms.Text.TokenizeIntoWords("MessageTokens", "NormalizedMessage"))
+            .Append(ml.Transforms.Text.ApplyWordEmbedding(outputColumnName: "SubjectEmbedding", inputColumnName: "SubjectTokens",
+                customModelFile: vectorPath))
+            .Append(ml.Transforms.Text.ApplyWordEmbedding(outputColumnName: "MessageEmbedding", inputColumnName: "MessageTokens",
+                customModelFile: vectorPath))
+            .Append(ml.Transforms.Concatenate("Features",
+                "SubjectFeatures", "MessageFeatures", "SubjectEmbedding", "MessageEmbedding",
+                nameof(EmailData.SenderKnown), nameof(EmailData.HasAttachments)))
+            .Append(ml.BinaryClassification.Trainers.SdcaLogisticRegression(trainer));
+
+        // Сравниваем модели на одних и тех же тестовых письмах, не передавая их в Fit.
         var split = ml.Data.TrainTestSplit(data, testFraction: 0.2);
-        var evaluationModel = pipeline.Fit(split.TrainSet);
-        var predictions = evaluationModel.Transform(split.TestSet);
-        var metrics = ml.BinaryClassification.Evaluate(predictions, labelColumnName: nameof(EmailData.IsSpam));
-        var matrix = metrics.ConfusionMatrix;
-        var correct = matrix.Counts[0][0] + matrix.Counts[1][1];
-        Console.WriteLine($"Точность на тестовой выборке: {correct}/{matrix.Counts.Sum(row => row.Sum())} ({metrics.Accuracy:P2})");
+        Evaluate(ml, pipeline, split, "Базовая модель");
+        Evaluate(ml, embeddingPipeline, split, "С ApplyWordEmbedding");
 
         // Итоговую модель для демонстрации обучаем на всех размеченных письмах.
         var model = pipeline.Fit(data);
@@ -42,6 +72,25 @@ internal static class Task4Spam
         Console.WriteLine($"Известный отправитель: {email.SenderKnown}. Вложения: {email.HasAttachments}.");
         Console.WriteLine($"Предсказание: {(prediction.Prediction ? "Спам" : "Не спам")}");
         Console.WriteLine($"Вероятность спама: {prediction.Probability:P2}");
+    }
+
+    private static void Evaluate(MLContext ml, IEstimator<ITransformer> pipeline,
+        DataOperationsCatalog.TrainTestData split, string name)
+    {
+        var model = pipeline.Fit(split.TrainSet);
+        var predictions = model.Transform(split.TestSet);
+        var metrics = ml.BinaryClassification.Evaluate(predictions, labelColumnName: nameof(EmailData.IsSpam));
+
+        // Диагональ матрицы ошибок содержит правильные ответы по обоим классам.
+        var counts = metrics.ConfusionMatrix.Counts;
+        var correct = counts[0][0] + counts[1][1];
+        Console.WriteLine($"{name}: {correct}/{counts.Sum(row => row.Sum())} ({metrics.Accuracy:P2})");
+    }
+
+    private sealed class EmbeddingText
+    {
+        public string EmbeddingSubject { get; set; } = string.Empty;
+        public string EmbeddingMessage { get; set; } = string.Empty;
     }
 
     private sealed class EmailData

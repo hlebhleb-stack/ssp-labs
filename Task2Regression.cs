@@ -6,8 +6,10 @@ internal static class Task2Regression
 {
     public static void Run(MLContext ml)
     {
+        // Загружаем часы и фактические баллы из CSV, скопированного при сборке.
         var data = ml.Data.LoadFromTextFile<StudentData>(
             Path.Combine(AppContext.BaseDirectory, "data.csv"), hasHeader: true, separatorChar: ',');
+        // Тестовые строки не участвуют в обучении регрессии.
         var split = ml.Data.TrainTestSplit(data, testFraction: 0.2);
 
         // Сохраняем фактический балл в Label: выход регрессии тоже называется Score.
@@ -19,6 +21,7 @@ internal static class Task2Regression
                 NumberOfThreads = 1
             }));
 
+        // Fit строит модель, Transform добавляет прогноз Score к тестовым строкам.
         var model = pipeline.Fit(split.TrainSet);
         var predictions = model.Transform(split.TestSet);
         var testRows = ml.Data.CreateEnumerable<StudentEvaluation>(predictions, reuseRowObject: false).ToArray();
@@ -34,6 +37,7 @@ internal static class Task2Regression
             Console.WriteLine($"Корень из средней квадратичной ошибки (RMSE): {metrics.RootMeanSquaredError:F2}");
         }
 
+        // Движок строит прогноз для одной новой записи (6 часов).
         var predictor = ml.Model.CreatePredictionEngine<StudentData, StudentPrediction>(model);
         var student = new StudentData { StudyHours = 6 };
         Console.WriteLine($"Прогноз для {student.StudyHours} часов занятий: {predictor.Predict(student).Score:F2}");
