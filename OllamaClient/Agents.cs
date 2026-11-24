@@ -64,7 +64,8 @@ public class CodeAssistantAgent : Agent
     {
         _history.Add(new ChatMessage("user", input));
         var prompt = BuildPrompt(input);
-        var response = await _client.GenerateAsync(_config.Model, prompt, _config.SystemPrompt);
+        var response = await _client.GenerateAsync(
+            _config.Model, prompt, _config.SystemPrompt, maxTokens: _config.MaxTokens);
         _history.Add(new ChatMessage("assistant", response));
         return response;
     }
@@ -87,7 +88,8 @@ public class CodeReviewAgent : Agent
         Код:
         {input}
         """;
-        return await _client.GenerateAsync(_config.Model, prompt, _config.SystemPrompt);
+        return await _client.GenerateAsync(
+            _config.Model, prompt, _config.SystemPrompt, maxTokens: _config.MaxTokens);
     }
 }
 
@@ -103,7 +105,8 @@ public class FactorialAgent : Agent
         Show the step-by-step calculation and the final result.
         If the number is large, explain the result in scientific notation.
         """;
-        return await _client.GenerateAsync(_config.Model, prompt, _config.SystemPrompt);
+        return await _client.GenerateAsync(
+            _config.Model, prompt, _config.SystemPrompt, maxTokens: _config.MaxTokens);
     }
 }
 

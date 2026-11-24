@@ -23,6 +23,12 @@ catch (Exception ex)
     return;
 }
 
+if (args.Length == 1 && args[0] == "--all")
+{
+    await RunAssignments();
+    return;
+}
+
 while (true)
 {
     Console.WriteLine("Выберите задание:");
@@ -35,11 +41,12 @@ while (true)
     Console.WriteLine("  1 - Малый пример: калькулятор факториала");
     Console.WriteLine("  2 - Большой пример: ассистент, ревью и диалог");
     Console.WriteLine("  3 - Тест клиента: список моделей, обычный и потоковый ответ");
+    Console.WriteLine("  4 - Выполнить A–D подряд");
     Console.WriteLine("  Q - Выход");
     Console.Write("Ваш выбор: ");
-    var choice = (Console.ReadLine() ?? "").Trim().ToUpperInvariant();
+    var choice = Console.ReadLine()?.Trim().ToUpperInvariant();
     Console.WriteLine();
-    if (choice == "Q") break;
+    if (choice is null or "Q") break;
 
     switch (choice)
     {
@@ -51,8 +58,17 @@ while (true)
         case "1": await ExampleFactorial(); break;
         case "2": await ExampleBig(); break;
         case "3": await ExampleClientTest(); break;
+        case "4": await RunAssignments(); break;
         default: Console.WriteLine("Неизвестный пункт.\n"); break;
     }
+}
+
+async Task RunAssignments()
+{
+    await TaskA();
+    await TaskB();
+    await TaskC();
+    await TaskD();
 }
 
 async Task TaskA()
@@ -115,7 +131,7 @@ async Task TaskD()
     pipeline.AddAgent(new CodeReviewAgent(client,
         new AgentConfig { Model = "deepseek-coder:6.7b", SystemPrompt = "Вы — эксперт по ревью кода." }));
     var task = "Напишите C# метод для вычисления последовательности Фибоначчи с использованием рекурсии. " +
-               "Включите обработку ошибок.";
+               "Включите правильную обработку ошибок и документацию.";
     Console.WriteLine($"Задача: {task}\n");
     var result = await pipeline.ProcessAsync(task);
     Console.WriteLine("Финальный результат:");
@@ -205,13 +221,39 @@ async Task ExampleBig()
 {
     public int Add(string numbers)
     {
-        if (string.IsNullOrEmpty(numbers)) return 0;
+        if (string.IsNullOrEmpty(numbers))
+            return 0;
         var parts = numbers.Split(',');
         var sum = 0;
-        for (int i = 0; i < parts.Length; i++) sum += int.Parse(parts[i]);
+        for (int i = 0; i < parts.Length; i++)
+        {
+            sum += int.Parse(parts[i]);
+        }
         return sum;
     }
-    public int Divide(int a, int b) { return a / b; }
+    public int Divide(int a, int b)
+    {
+        return a / b;
+    }
+    public List<int> GetPrimes(int limit)
+    {
+        var primes = new List<int>();
+        for (int i = 2; i <= limit; i++)
+        {
+            var isPrime = true;
+            for (int j = 2; j < i; j++)
+            {
+                if (i % j == 0)
+                {
+                    isPrime = false;
+                    break;
+                }
+            }
+            if (isPrime)
+                primes.Add(i);
+        }
+        return primes;
+    }
 }";
     Console.WriteLine("📄 Code to Review:\n" + codeToReview + "\n\n🔎 Review Results:\n");
     Console.WriteLine(await reviewer.ProcessAsync(codeToReview) + "\n");

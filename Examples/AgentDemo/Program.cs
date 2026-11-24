@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -66,7 +67,7 @@ public class OllamaApiClient
         string model,
         string prompt,
         string systemPrompt = null,
-        CancellationToken cancellationToken = default)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var request = new
         {
@@ -78,17 +79,17 @@ public class OllamaApiClient
         };
         var json = JsonSerializer.Serialize(request);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
-        using var response = await _httpClient.PostAsync(
-            $"{_baseUrl}/api/generate",
-            content,
-            cancellationToken
-        );
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/generate")
+        {
+            Content = content
+        };
+        using var response = await _httpClient.SendAsync(
+            message, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         response.EnsureSuccessStatusCode();
         using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
-        while (!reader.EndOfStream && !cancellationToken.IsCancellationRequested)
+        while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
-            var line = await reader.ReadLineAsync(cancellationToken);
             if (string.IsNullOrWhiteSpace(line)) continue;
             using var document = JsonDocument.Parse(line);
             var responseText = document.RootElement.GetProperty("response").GetString();
@@ -396,8 +397,11 @@ public class Calculator
         finally
         {
             Console.WriteLine();
-            Console.WriteLine("Press any key to exit...");
-            Console.ReadKey();
+            if (!Console.IsInputRedirected)
+            {
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
+            }
         }
     }
 }

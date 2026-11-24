@@ -23,9 +23,13 @@ public class OllamaApiClient
 
     // Обычная генерация: POST /api/generate, stream = false
     public async Task<string> GenerateAsync(string model, string prompt, string? systemPrompt = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, int? maxTokens = null)
     {
-        var request = new { model, prompt, system = systemPrompt, stream = false, options = new { temperature = 0.7 } };
+        var options = new Dictionary<string, object> { ["temperature"] = 0.7 };
+        if (maxTokens is int limit)
+            options["num_predict"] = limit;
+
+        var request = new { model, prompt, system = systemPrompt, stream = false, options };
         var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
         var response = await _httpClient.PostAsync($"{_baseUrl}/api/generate", content, ct);
         response.EnsureSuccessStatusCode();
@@ -39,13 +43,17 @@ public class OllamaApiClient
     {
         var request = new { model, prompt, system = systemPrompt, stream = true, options = new { temperature = 0.7 } };
         var content = new StringContent(JsonSerializer.Serialize(request), Encoding.UTF8, "application/json");
-        using var response = await _httpClient.PostAsync($"{_baseUrl}/api/generate", content, ct);
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/generate")
+        {
+            Content = content
+        };
+        using var response = await _httpClient.SendAsync(
+            message, HttpCompletionOption.ResponseHeadersRead, ct);
         response.EnsureSuccessStatusCode();
         using var stream = await response.Content.ReadAsStreamAsync(ct);
         using var reader = new StreamReader(stream);
-        while (!reader.EndOfStream && !ct.IsCancellationRequested)
+        while (await reader.ReadLineAsync(ct) is { } line)
         {
-            var line = await reader.ReadLineAsync(ct);
             if (string.IsNullOrWhiteSpace(line)) continue;
             using var document = JsonDocument.Parse(line);
             var token = document.RootElement.GetProperty("response").GetString();
